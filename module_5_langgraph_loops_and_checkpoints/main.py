@@ -217,7 +217,7 @@ CURRENT DRAFT:
 {current_draft}
 
 CRITIC FEEDBACK:
-{chr(10).join(f"- {fb}" for fb in feedback)}
+{feedback}
 
 Please revise the draft to address the feedback while keeping the research foundation.
     """
