@@ -87,3 +87,32 @@ async def get_writer_agent():
         }
     )
     return agent
+
+async def get_critic_agent():
+    """
+    Initializes and returns a critic agent with memory capabilities.
+    """
+    load_dotenv()
+    critic_tools = [ 
+        *await agent_mcp.get_mcp_tools(),
+        agent_tools.get_web_search_tool()
+    ]
+    model = init_chat_model(
+        "gpt-5-mini",
+        temperature=0.2
+    )
+    agent = create_agent(
+        model,
+        system_prompt=prompts.CRITIC.SYSTEM_PROMPT,
+        tools=critic_tools,
+        response_format=ProviderStrategy(schema=schemas.CriticSchema)
+    ).with_retry(
+        stop_after_attempt=3,
+        exponential_jitter_params={
+            "initial": 0.2,
+            "max": 4,
+            "exp_base": 2,
+            "jitter": 0.1
+        }
+    )
+    return agent

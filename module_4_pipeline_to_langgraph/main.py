@@ -19,7 +19,7 @@ import json
 import operator
 from typing import List
 
-from typing_extensions import Annotated, Optional, TypedDict
+from typing_extensions import Annotated, TypedDict
 
 from langchain.messages import AIMessage, AnyMessage, HumanMessage
 from langchain_core.messages import BaseMessage, message_to_dict
@@ -45,9 +45,9 @@ from prompts import USER
 # LangGraph automatically merges the returned dict into the state
 class ReportState(TypedDict):
     messages: Annotated[List[AnyMessage], operator.add]
-    outline: Optional[dict]
-    research_notes: Optional[dict]
-    draft: Optional[str]
+    outline: dict
+    research_notes: dict
+    draft: str
 
 
 # Initialize all three agents once at startup
@@ -186,6 +186,7 @@ Write a report using only the following research notes:
         "messages": writing_response["messages"],
         "draft": draft_text,
     }
+    
 
 
 # BUILD THE GRAPH
@@ -270,13 +271,7 @@ with open("dump.json", "w", encoding="utf-8") as f:
     json.dump(serializable, f, indent=2, ensure_ascii=False)
 
 # Print the final results
-# In Module 3, we printed intermediate results after each stage
-# In Module 4, we print the final state after the entire graph completes
-print("********************MESSAGE HISTORY********************")
-print (result)
-print("\n" * 3)
 print("********************FINAL REPORT********************")
-
 # Extract the final report from the state
 # This was populated by the writer_agent node
 final_report = result["draft"]

@@ -37,7 +37,6 @@ user_message = [
 # thread_id identifies this conversation - messages with the same thread_id share history
 response = agent.invoke(
     {"messages": user_message},
-    {"configurable": {"thread_id": "1"}}
 )
 
 # Print the complete first response

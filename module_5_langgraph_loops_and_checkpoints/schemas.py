@@ -194,3 +194,31 @@ class ResearchNotesSchema(BaseModel):
         min_length=3,
         max_length=10
     )
+
+# Define the schema for the critic agent's evaluation
+# This represents the structured feedback a critic provides when reviewing a report draft
+class CriticSchema(BaseModel):
+    """
+    Represents the structured output for the critic agent.
+    """
+    # Forbid extra fields to ensure clean, predictable output
+    model_config = ConfigDict(extra="forbid")
+
+    # score: a numerical rating from 1-10 indicating overall quality
+    # 1 = poor quality, needs major revision
+    # 10 = excellent, publication-ready
+    # ge=1 and le=10 enforce the valid range (greater than or equal to 1, less than or equal to 10)
+    score: int = Field(
+        ...,
+        description="An overall score for the report draft, from 1 (poor) to 10 (excellent).",
+        ge=1,
+        le=10
+    )
+
+    # feedback: list of detailed written critique explaining the score
+    # Should provide actionable suggestions for improvement
+    # This helps the writer understand what needs to be revised
+    feedback: List[str] = Field(
+        ...,
+        description="Constructive feedback on the report draft, focusing on improvements."
+    )

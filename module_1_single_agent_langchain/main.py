@@ -132,7 +132,7 @@ planner_agent = create_agent(
 
 # Define the specific topic and audience for this report
 # These values will be inserted into the user_message_text template
-topic = "Resonsible AI"
+topic = "Responsible AI"
 audience = "non-technical founders"
 
 # Create the actual user message by filling in the template placeholders
