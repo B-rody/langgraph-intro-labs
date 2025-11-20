@@ -316,76 +316,86 @@ async def route_from_critic(state: ReportState) -> str:
     return END # Quality acceptable, finish workflow
 
 # BUILD THE GRAPH
-# In Module 3: We manually called each agent in sequence using a function
-# In Module 4: We define the workflow as a graph and let LangGraph execute it
+# In Module 4: We built a graph with 3 nodes and linear flow: planner → researcher → writer → END
+# In Module 5: We have 4 nodes with conditional routing and loops for iterative improvement
 #
-# Graph building steps:
-# 1. Create a StateGraph with our ReportState type
-# 2. Add nodes: Each node is a function that processes the state
-# 3. Add edges: Define the flow between nodes (who runs after whom)
-# 4. Compile: Convert the graph definition into an executable workflow
-#
-# The graph structure:
-#   START → planner_agent → researcher_agent → writer_agent → END
-#
-# This is equivalent to Module 3's sequential pipeline, but more flexible:
-# - Easy to add conditional edges (if X then Y, else Z)
-# - Easy to add parallel nodes (run multiple agents at once)
-# - Easy to add cycles (feedback loops, retries, human-in-the-loop)
+# StateGraph creates a workflow where:
+# - Nodes are functions that process/transform state
+# - Edges connect nodes (unconditional) or route dynamically (conditional)
+# - START is the entry point, END is the exit point
+# - State flows through the graph and accumulates data
 graph_builder = StateGraph(ReportState)
 
-# Add three nodes to the graph
+# Add four nodes to the graph (Module 4 had 3, Module 5 adds critic)
 # Each node is associated with a function that will be called when that node executes
+# RetryPolicy(retry_on=[ValueError]) means if the function raises ValueError, retry automatically
 graph_builder.add_node("planner_agent", planner_agent_func, retry_policy=RetryPolicy(retry_on=[ValueError]))
 graph_builder.add_node("researcher_agent", researcher_agent_func, retry_policy=RetryPolicy(retry_on=[ValueError]))
 graph_builder.add_node("writer_agent", writer_agent_func, retry_policy=RetryPolicy(retry_on=[ValueError]))
 graph_builder.add_node("critic_agent", critic_agent_func, retry_policy=RetryPolicy(retry_on=[ValueError]))
 
-# Add edges to define the execution flow
-# START is a special node that represents the beginning of the graph
-# END is a special node that represents the completion of the graph
-graph_builder.add_edge(START, "planner_agent")
-graph_builder.add_edge("planner_agent", "researcher_agent")
-graph_builder.add_edge("researcher_agent", "writer_agent")
+# UNCONDITIONAL EDGES: These always route to the same next node
+# Module 4 only had unconditional edges (simple linear flow)
+# Module 5 combines unconditional edges (for the initial pipeline) with conditional edges (for the loop)
+graph_builder.add_edge(START, "planner_agent")  # Always start with planner
+graph_builder.add_edge("planner_agent", "researcher_agent")  # Planner always goes to researcher
+graph_builder.add_edge("researcher_agent", "writer_agent")  # Researcher always goes to writer
+
+# CONDITIONAL EDGES: These call a routing function to decide the next node
+# This is NEW in Module 5 - Module 4 didn't have any conditional routing
+#
+# add_conditional_edges syntax:
+# - First arg: source node name (where the edge starts)
+# - Second arg: routing function that returns a string (node name or END)
+# - Third arg: path dictionary mapping return values to actual destinations
+#
+# Example: After writer_agent completes, route_from_writer() is called
+# - If it returns "critic_agent", LangGraph routes to critic_agent node
+# - If it returns END, LangGraph terminates the workflow
 graph_builder.add_conditional_edges(
     "writer_agent",
     route_from_writer,
     {
-        "critic_agent": "critic_agent",
-        END: END
+        "critic_agent": "critic_agent",  # Route to critic if draft needs evaluation
+        END: END  # Or finish if quality is good or max rounds reached
     }
 )
 graph_builder.add_conditional_edges(
     "critic_agent",
     route_from_critic,
     {
-        "writer_agent": "writer_agent",
-        END: END
+        "writer_agent": "writer_agent",  # Loop back to writer if score < 8
+        END: END  # Or finish if score ≥ 8
     }
 )
 
 # Compile the graph into an executable workflow
 # After compilation, we can invoke the graph with an initial state
+# The graph will follow the edges (unconditional and conditional) to execute the workflow
 graph = graph_builder.compile()
 
 
 # EXECUTE THE GRAPH
-# In Module 3: We called run_writer_pipeline(topic, audience)
-# In Module 4: We invoke the graph with an initial state
-#
-# Key differences:
-# - Module 3: Function controls execution step-by-step
-# - Module 4: Graph controls execution based on edges
+# In Module 4: We invoked the graph with 4 fields (messages, outline, research_notes, draft)
+# In Module 5: We add 2 new fields to track critique iterations: critique_count and critiques
 #
 # The initial state provides:
-# - messages: Empty list (will be populated by agents)
-# - outline, research_notes, draft: None (will be filled in by nodes)
+# - messages: Empty list (will be populated by agents as they run)
+# - outline, research_notes, draft: None (will be filled in by respective nodes)
+# - critique_count: 0 (increments with each critique round)
+# - critiques: [] (accumulates score/feedback from each critique)
 #
-# LangGraph will:
-# 1. Start at the START node
-# 2. Follow edges: planner → researcher → writer → END
-# 3. Each node updates the state
-# 4. Return the final state when END is reached
+# LangGraph execution flow:
+# 1. Start at START → planner_agent
+# 2. planner_agent → researcher_agent (unconditional edge)
+# 3. researcher_agent → writer_agent (unconditional edge)
+# 4. writer_agent → route_from_writer decides:
+#    a. critic_agent (if count < 3 AND no critiques yet OR last score < 8)
+#    b. END (if quality acceptable or max rounds reached)
+# 5. IF critic_agent runs → route_from_critic decides:
+#    a. writer_agent (if score < 8, loop back for revision)
+#    b. END (if score ≥ 8, quality acceptable)
+# 6. This loop continues until: score ≥ 8 OR critique_count ≥ 3
 try: 
     result = asyncio.run(graph.ainvoke({
         "messages": [],
@@ -401,10 +411,14 @@ except Exception as e:
     traceback.print_exc()
     raise
 
-# Save the message history to a JSON file for debugging
-# This is useful to see exactly what each agent said during execution
-# We convert BaseMessage objects to dicts so they can be serialized to JSON
-#serialize the entire state messages
+# Save the complete state to a JSON file for debugging
+# Module 4 saved: messages, outline, research_notes, draft
+# Module 5 also saves: critiques and critique_count
+#
+# This helps debug the revision loop by showing:
+# - How many critique rounds occurred
+# - What scores and feedback were given each round
+# - How the draft evolved across revisions
 serializable = {
     "messages": [
         message_to_dict(m) if isinstance(m, BaseMessage) else m
@@ -421,17 +435,18 @@ with open("dump.json", "w", encoding="utf-8") as f:
     json.dump(serializable, f, indent=2, ensure_ascii=False)
 
 # Print the final results
+# Module 4 printed just the final draft
+# Module 5 also prints critique history to show the iterative improvement process
 print("********************FINAL REPORT********************")
-# Extract the final report from the state
-# This was populated by the writer_agent node
 final_report = result["draft"]
 print(final_report)
 
-# Print critiques if any
+# Print critique history (NEW in Module 5)
+# Shows the iterative improvement: score and feedback from each revision round
 if "critiques" in result and result["critiques"]:
     print("\n" * 3)
-    print("********************CRITIQUES********************")
+    print("********************CRITIQUE HISTORY********************")
     for idx, critique in enumerate(result["critiques"], start=1):
-        print(f"Critique Round {idx}:")
+        print(f"\nCritique Round {idx}:")
         print(f"Score: {critique['score']}")
         print(f"Feedback: {critique['feedback']}\n")
